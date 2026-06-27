@@ -105,7 +105,7 @@ function shuffleOptions(options: Option[]): Option[] {
 }
 
 export default function LiveMockInterview() {
-  const [currentStep, setCurrentStep] = useState<'landing' | 'learn-intro' | 'learning' | 'quiz' | 'results'>('landing');
+  const [currentStep, setCurrentStep] = useState<'landing' | 'learn-intro' | 'learning' | 'quiz' | 'results' | 'category-learn-completed'>('landing');
   
   // Progress indexes
   const [learningIndex, setLearningIndex] = useState<number>(0);
@@ -131,14 +131,31 @@ export default function LiveMockInterview() {
   const [selectedResultCategoryFilter, setSelectedResultCategoryFilter] = useState<number | 'all'>('all');
   const [resultsSearchQuery, setResultsSearchQuery] = useState<string>('');
 
+  // Mode and Category selection
+  const [mode, setMode] = useState<'full' | 'category'>('full');
+  const [selectedCategory, setSelectedCategory] = useState<number | null>(null);
+
+  // In-memory score persistence per session
+  const [completedAssessments, setCompletedAssessments] = useState<Record<string | number, {
+    correct: number;
+    total: number;
+    accuracy: number;
+    date: string;
+  }>>({});
+
+  // Scenarios list scoped by mode
+  const activeScenarios = selectedCategory
+    ? SCENARIOS.filter(s => s.category === selectedCategory)
+    : SCENARIOS;
+
   // When current step is quiz and index changes, prepare shuffled options
   useEffect(() => {
-    if (currentStep === 'quiz' && SCENARIOS[quizIndex]) {
-      const originalOptions = SCENARIOS[quizIndex].options;
+    if (currentStep === 'quiz' && activeScenarios[quizIndex]) {
+      const originalOptions = activeScenarios[quizIndex].options;
       setActiveQuizOptions(shuffleOptions(originalOptions));
       setSelectedOptionText('');
     }
-  }, [quizIndex, currentStep]);
+  }, [quizIndex, currentStep, selectedCategory]);
 
   const handleRestart = () => {
     setLearningIndex(0);
@@ -147,33 +164,65 @@ export default function LiveMockInterview() {
     setUserSelections([]);
     setSelectedResultCategoryFilter('all');
     setResultsSearchQuery('');
+    setMode('full');
+    setSelectedCategory(null);
     setCurrentStep('landing');
   };
 
   const handleStartLearning = () => {
+    setMode('full');
+    setSelectedCategory(null);
     setLearningIndex(0);
     // Go to category introduction screen first
     setCurrentStep('learn-intro');
   };
 
+  const handleStartFullMock = () => {
+    setMode('full');
+    setSelectedCategory(null);
+    setQuizIndex(0);
+    setUserSelections([]);
+    setCurrentStep('quiz');
+  };
+
+  const handleStartCategoryLearn = (categoryId: number) => {
+    setMode('category');
+    setSelectedCategory(categoryId);
+    setLearningIndex(0);
+    setCurrentStep('learning');
+  };
+
+  const handleStartCategoryMock = (categoryId: number) => {
+    setMode('category');
+    setSelectedCategory(categoryId);
+    setQuizIndex(0);
+    setUserSelections([]);
+    setCurrentStep('quiz');
+  };
+
   const handleNextLearn = () => {
-    const currentScenario = SCENARIOS[learningIndex];
-    const nextScenario = SCENARIOS[learningIndex + 1];
+    const currentScenario = activeScenarios[learningIndex];
+    const nextScenario = activeScenarios[learningIndex + 1];
 
     if (nextScenario) {
-      if (currentScenario.category !== nextScenario.category) {
+      if (mode === 'full' && currentScenario.category !== nextScenario.category) {
         // We crossed a category boundary! Show the category transition intro page first.
         setLearningIndex(prev => prev + 1);
         setCurrentStep('learn-intro');
       } else {
-        // Same category, proceed card-by-card
+        // Same category (or in category mode), proceed card-by-card
         setLearningIndex(prev => prev + 1);
       }
     } else {
-      // Done learning -> start the 62-question MCQ Mock Interview
-      setQuizIndex(0);
-      setUserSelections([]);
-      setCurrentStep('quiz');
+      // Done learning
+      if (mode === 'category') {
+        setCurrentStep('category-learn-completed');
+      } else {
+        // Done learning full -> start the 62-question MCQ Mock Interview
+        setQuizIndex(0);
+        setUserSelections([]);
+        setCurrentStep('quiz');
+      }
     }
   };
 
@@ -188,7 +237,7 @@ export default function LiveMockInterview() {
   const handleSubmitQuizAnswer = () => {
     if (!selectedOptionText) return;
 
-    const currentScenario = SCENARIOS[quizIndex];
+    const currentScenario = activeScenarios[quizIndex];
     const correctOption = currentScenario.options.find(opt => opt.isCorrect);
     const correctText = correctOption ? correctOption.text : '';
     const isCorrect = selectedOptionText === correctText;
@@ -204,11 +253,28 @@ export default function LiveMockInterview() {
       isCorrect: isCorrect
     };
 
-    setUserSelections(prev => [...prev, selectionItem]);
+    const updatedSelections = [...userSelections, selectionItem];
+    setUserSelections(updatedSelections);
 
-    if (quizIndex < SCENARIOS.length - 1) {
+    if (quizIndex < activeScenarios.length - 1) {
       setQuizIndex(prev => prev + 1);
     } else {
+      // Quiz finished! Save the score in session memory
+      const correctCount = updatedSelections.filter(sel => sel.isCorrect).length;
+      const totalCount = activeScenarios.length;
+      const accuracy = Math.round((correctCount / totalCount) * 100);
+      
+      const sessionKey = mode === 'category' ? selectedCategory! : 'full';
+      setCompletedAssessments(prev => ({
+        ...prev,
+        [sessionKey]: {
+          correct: correctCount,
+          total: totalCount,
+          accuracy: accuracy,
+          date: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        }
+      }));
+
       setCurrentStep('results');
     }
   };
@@ -222,8 +288,34 @@ export default function LiveMockInterview() {
   });
 
   return (
-    <div className="bg-slate-50 min-h-full py-8 sm:py-12 px-4 transition-all duration-300">
+    <div className="bg-slate-50 min-h-full py-8 sm:py-12 px-4 transition-all duration-300 animate-fade-in">
       <div className="max-w-3xl mx-auto">
+
+        {/* TOP-BAR NAVIGATION (Shown when not on landing screen) */}
+        {currentStep !== 'landing' && (
+          <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white border border-slate-200 rounded-xl px-4 py-3 shadow-3xs">
+            <button
+              onClick={handleRestart}
+              className="inline-flex items-center gap-1.5 text-xs font-extrabold text-slate-500 hover:text-slate-800 transition-colors uppercase tracking-wider cursor-pointer select-none"
+              id="back_to_home_nav_btn"
+            >
+              <ChevronRight className="w-4 h-4 rotate-180 text-slate-400" />
+              <span>Back to Home</span>
+            </button>
+            
+            {mode === 'category' && selectedCategory && (
+              <span className="text-[10px] font-mono font-bold bg-blue-50 text-blue-600 px-2.5 py-1 rounded border border-blue-100 max-w-xs truncate">
+                Category {selectedCategory}: {CATEGORIES_META[selectedCategory].name}
+              </span>
+            )}
+            {mode === 'full' && (
+              <span className="text-[10px] font-mono font-bold bg-indigo-50 text-indigo-600 px-2.5 py-1 rounded border border-indigo-100 uppercase tracking-wider">
+                Full Curriculum Mode (All 62 Scenarios)
+              </span>
+            )}
+          </div>
+        )}
+
         <AnimatePresence mode="wait">
           
           {/* VIEW 1: LANDING PAGE */}
@@ -250,14 +342,29 @@ export default function LiveMockInterview() {
                   </p>
                 </div>
 
-                <div className="pt-2">
+                {completedAssessments['full'] && (
+                  <div className="max-w-md mx-auto inline-flex items-center gap-2 px-3.5 py-1.5 bg-indigo-50 border border-indigo-100 rounded-xl text-xs font-mono font-bold text-indigo-700 shadow-3xs">
+                    <CheckCircle className="w-4 h-4" />
+                    <span>Full Curriculum Score: {completedAssessments['full'].correct} / {completedAssessments['full'].total} ({completedAssessments['full'].accuracy}% Accuracy)</span>
+                  </div>
+                )}
+
+                <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-3">
                   <button
                     onClick={handleStartLearning}
-                    className="inline-flex items-center justify-center gap-2 px-8 py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm rounded-xl transition-all shadow-sm hover:shadow-md cursor-pointer uppercase tracking-wider select-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                    className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs sm:text-sm rounded-xl transition-all shadow-sm hover:shadow-md cursor-pointer uppercase tracking-wider select-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
                     id="start_learning_btn"
                   >
-                    <span>Start Practice Flow</span>
+                    <span>Start Full Practice (All 62)</span>
                     <BookOpen className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={handleStartFullMock}
+                    className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3.5 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs sm:text-sm rounded-xl transition-all shadow-sm hover:shadow-md cursor-pointer uppercase tracking-wider select-none focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-offset-2"
+                    id="start_full_mock_btn"
+                  >
+                    <span>Full Mock Interview (All 62)</span>
+                    <Award className="w-4 h-4" />
                   </button>
                 </div>
               </div>
@@ -270,24 +377,64 @@ export default function LiveMockInterview() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {Object.values(CATEGORIES_META).map((cat) => {
                     const CatIcon = cat.icon;
+                    const catScenarios = SCENARIOS.filter(s => s.category === cat.id);
+                    const scenarioCount = catScenarios.length;
+                    const lastAttempt = completedAssessments[cat.id];
+
                     return (
-                      <div key={cat.id} className="bg-white border border-slate-200 rounded-xl p-5 shadow-3xs space-y-3">
-                        <div className="flex items-center gap-3">
-                          <div className={`p-2 rounded-lg ${cat.bgColor} ${cat.color}`}>
-                            <CatIcon className="w-5 h-5" />
+                      <div 
+                        key={cat.id} 
+                        onClick={() => handleStartCategoryLearn(cat.id)}
+                        className="bg-white border border-slate-200 rounded-xl p-5 shadow-3xs space-y-4 hover:border-blue-400 hover:shadow-2xs transition-all duration-200 cursor-pointer group flex flex-col justify-between"
+                      >
+                        <div className="space-y-3">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex items-center gap-3">
+                              <div className={`p-2 rounded-lg ${cat.bgColor} ${cat.color} group-hover:scale-105 transition-transform duration-200`}>
+                                <CatIcon className="w-5 h-5" />
+                              </div>
+                              <div>
+                                <span className="text-[10px] font-mono font-bold text-slate-400 block uppercase">
+                                  Category {cat.id} • {scenarioCount} Scenarios
+                                </span>
+                                <h3 className="font-display font-bold text-slate-900 text-sm group-hover:text-blue-600 transition-colors">
+                                  {cat.name}
+                                </h3>
+                              </div>
+                            </div>
                           </div>
-                          <div>
-                            <span className="text-[10px] font-mono font-bold text-slate-400 block uppercase">
-                              Category {cat.id} • Scenarios {cat.scenariosRange}
-                            </span>
-                            <h3 className="font-display font-bold text-slate-900 text-sm">
-                              {cat.name}
-                            </h3>
-                          </div>
+                          
+                          <p className="text-xs text-slate-500 leading-relaxed">
+                            {cat.description}
+                          </p>
+
+                          {lastAttempt && (
+                            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 border border-emerald-100 rounded text-[10px] font-mono font-bold text-emerald-700">
+                              <CheckCircle className="w-3.5 h-3.5" />
+                              <span>Last Attempt: {lastAttempt.correct}/{lastAttempt.total} ({lastAttempt.accuracy}%)</span>
+                            </div>
+                          )}
                         </div>
-                        <p className="text-xs text-slate-500 leading-relaxed">
-                          {cat.description}
-                        </p>
+
+                        {/* Interactive Buttons for Study and Quiz */}
+                        <div className="pt-3 border-t border-slate-100 grid grid-cols-2 gap-2" onClick={(e) => e.stopPropagation()}>
+                          <button
+                            onClick={() => handleStartCategoryLearn(cat.id)}
+                            className="inline-flex items-center justify-center gap-1.5 px-3 py-2 border border-slate-200 hover:border-blue-500 rounded-lg text-slate-700 hover:text-blue-600 hover:bg-blue-50/50 text-[11px] font-bold transition-all uppercase tracking-wider cursor-pointer select-none"
+                            id={`learn_cat_btn_${cat.id}`}
+                          >
+                            <BookOpen className="w-3.5 h-3.5 text-blue-500" />
+                            <span>Learn</span>
+                          </button>
+                          <button
+                            onClick={() => handleStartCategoryMock(cat.id)}
+                            className="inline-flex items-center justify-center gap-1.5 px-3 py-2 border border-slate-200 hover:border-amber-500 rounded-lg text-slate-700 hover:text-amber-600 hover:bg-amber-50/50 text-[11px] font-bold transition-all uppercase tracking-wider cursor-pointer select-none"
+                            id={`mock_cat_btn_${cat.id}`}
+                          >
+                            <Award className="w-3.5 h-3.5 text-amber-500" />
+                            <span>Mock</span>
+                          </button>
+                        </div>
                       </div>
                     );
                   })}
@@ -298,7 +445,7 @@ export default function LiveMockInterview() {
 
           {/* VIEW 2: CATEGORY INTRO (SECTION HEADER) */}
           {currentStep === 'learn-intro' && (() => {
-            const currentScenario = SCENARIOS[learningIndex];
+            const currentScenario = activeScenarios[learningIndex];
             const catMeta = CATEGORIES_META[currentScenario.category];
             const CatIcon = catMeta.icon;
 
@@ -359,9 +506,9 @@ export default function LiveMockInterview() {
 
           {/* VIEW 3: PART 1 — LEARNING COMPONENT */}
           {currentStep === 'learning' && (() => {
-            const currentScenario = SCENARIOS[learningIndex];
-            const isLastLearn = learningIndex === SCENARIOS.length - 1;
-            const progressPercent = ((learningIndex + 1) / SCENARIOS.length) * 100;
+            const currentScenario = activeScenarios[learningIndex];
+            const isLastLearn = learningIndex === activeScenarios.length - 1;
+            const progressPercent = ((learningIndex + 1) / activeScenarios.length) * 100;
             const catMeta = CATEGORIES_META[currentScenario.category];
             const CatIcon = catMeta.icon;
 
@@ -397,7 +544,7 @@ export default function LiveMockInterview() {
                     
                     <div className="text-right shrink-0">
                       <span className="text-xs font-semibold text-slate-500 font-mono">
-                        {learningIndex + 1} of {SCENARIOS.length}
+                        Scenario {learningIndex + 1} of {activeScenarios.length}
                       </span>
                       <div className="w-28 bg-slate-100 h-1.5 rounded-full overflow-hidden mt-1 md:ml-auto border border-slate-200">
                         <div 
@@ -447,7 +594,7 @@ export default function LiveMockInterview() {
                     className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-6 py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs sm:text-sm rounded-xl transition-colors shadow-sm cursor-pointer uppercase tracking-wider select-none"
                     id="next_learning_step_btn"
                   >
-                    <span>{isLastLearn ? 'Proceed to Mock Assessment' : 'Next Scenario'}</span>
+                    <span>{isLastLearn ? (mode === 'category' ? 'Finish Category Practice' : 'Proceed to Mock Assessment') : 'Next Scenario'}</span>
                     <ChevronRight className="w-4 h-4" />
                   </button>
                 </div>
@@ -455,10 +602,67 @@ export default function LiveMockInterview() {
             );
           })()}
 
-          {/* VIEW 4: PART 2 — MOCK INTERVIEW MCQ */}
+          {/* VIEW 4: CATEGORY LEARN COMPLETED SCREEN */}
+          {currentStep === 'category-learn-completed' && (() => {
+            const catMeta = CATEGORIES_META[selectedCategory!];
+            const CatIcon = catMeta.icon;
+
+            return (
+              <motion.div
+                key="category-learn-completed"
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -15 }}
+                transition={{ duration: 0.3 }}
+                className="bg-white border border-slate-200 rounded-2xl p-6 sm:p-10 shadow-xs text-center space-y-6"
+              >
+                <div className="space-y-2">
+                  <div className={`w-20 h-20 ${catMeta.bgColor} ${catMeta.color} ${catMeta.borderColor} border rounded-3xl flex items-center justify-center mx-auto shadow-2xs`}>
+                    <CheckCircle className="w-10 h-10" />
+                  </div>
+                  <span className="text-[10px] font-mono font-black text-emerald-600 uppercase tracking-widest bg-emerald-50 px-3 py-1 rounded inline-block">
+                    CATEGORY LEARN COMPLETE
+                  </span>
+                </div>
+
+                <div className="space-y-3">
+                  <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight font-display max-w-lg mx-auto">
+                    You've completed {catMeta.name}!
+                  </h1>
+                  <p className="text-slate-500 text-sm max-w-md mx-auto leading-relaxed">
+                    Ready to test your knowledge on these scenarios under a simulated mock assessment?
+                  </p>
+                </div>
+
+                <div className="pt-4 flex flex-col sm:flex-row items-center justify-center gap-3">
+                  <button
+                    onClick={() => {
+                      setQuizIndex(0);
+                      setUserSelections([]);
+                      setCurrentStep('quiz');
+                    }}
+                    className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm rounded-xl transition-all shadow-sm cursor-pointer uppercase tracking-wider select-none"
+                    id="category_completed_mock_btn"
+                  >
+                    <span>Mock Interview — This Category</span>
+                    <Award className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={handleRestart}
+                    className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-sm rounded-xl transition-all shadow-sm cursor-pointer uppercase tracking-wider select-none"
+                    id="category_completed_home_btn"
+                  >
+                    <span>Back to Home</span>
+                  </button>
+                </div>
+              </motion.div>
+            );
+          })()}
+
+          {/* VIEW 5: PART 2 — MOCK INTERVIEW MCQ */}
           {currentStep === 'quiz' && (() => {
-            const currentScenario = SCENARIOS[quizIndex];
-            const progressPercent = ((quizIndex + 1) / SCENARIOS.length) * 100;
+            const currentScenario = activeScenarios[quizIndex];
+            const progressPercent = ((quizIndex + 1) / activeScenarios.length) * 100;
             const catMeta = CATEGORIES_META[currentScenario.category];
             const CatIcon = catMeta.icon;
 
@@ -485,7 +689,7 @@ export default function LiveMockInterview() {
                   <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
                     <div className="space-y-1">
                       <span className="text-[11px] font-mono font-bold tracking-widest text-amber-600 uppercase bg-amber-50 px-2.5 py-1 rounded">
-                        PART 2: MOCK ASSESSMENT (SILENT SELECTION)
+                        {mode === 'category' ? `PART 2: MCQ PRACTICE (CATEGORY ${catMeta.id})` : 'PART 2: MOCK ASSESSMENT (SILENT SELECTION)'}
                       </span>
                       <h2 className="text-xl sm:text-2xl font-black text-slate-900 mt-2 font-display">
                         Scenario {currentScenario.id}. {currentScenario.title}
@@ -494,7 +698,7 @@ export default function LiveMockInterview() {
                     
                     <div className="text-right shrink-0">
                       <span className="text-xs font-semibold text-slate-500 font-mono">
-                        Question {quizIndex + 1} of {SCENARIOS.length}
+                        Question {quizIndex + 1} of {activeScenarios.length}
                       </span>
                       <div className="w-28 bg-slate-100 h-1.5 rounded-full overflow-hidden mt-1 md:ml-auto border border-slate-200">
                         <div 
@@ -574,10 +778,11 @@ export default function LiveMockInterview() {
             );
           })()}
 
-          {/* VIEW 5: FINAL RESULTS SCREEN */}
+          {/* VIEW 6: FINAL RESULTS SCREEN */}
           {currentStep === 'results' && (() => {
             const correctCount = userSelections.filter(sel => sel.isCorrect).length;
-            const avgRating = Math.round((correctCount / SCENARIOS.length) * 100);
+            const avgRating = Math.round((correctCount / activeScenarios.length) * 100);
+            const resultsCategoryMeta = mode === 'category' ? CATEGORIES_META[selectedCategory!] : null;
 
             const getFeedbackStatement = () => {
               if (avgRating >= 90) return "Executive Status Met: You demonstrated flawless corporate analysis and analytical process excellence across high-stakes pressure situations.";
@@ -603,8 +808,13 @@ export default function LiveMockInterview() {
                     <span className="text-[10px] font-mono font-black text-blue-600 uppercase tracking-widest bg-blue-50 px-3 py-1 rounded inline-block">
                       OFFICIAL ASSESSMENT COMPLETED REPORT
                     </span>
-                    <h2 className="text-3xl font-black text-slate-900 tracking-tight font-display">
-                      Your Final Score: <span className="text-blue-600">{correctCount} / {SCENARIOS.length}</span> Correct
+                    <h2 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight font-display">
+                      Your Final Score: <span className="text-blue-600">{correctCount} / {activeScenarios.length}</span> Correct
+                      {mode === 'category' && resultsCategoryMeta && (
+                        <span className="text-slate-400 block sm:inline font-sans font-medium text-lg sm:text-xl">
+                          {" — "}{resultsCategoryMeta.name}
+                        </span>
+                      )}
                     </h2>
                     <p className="text-sm font-semibold text-slate-500 font-mono mt-0.5">
                       Pass Ratio: {avgRating}% Accuracy
@@ -615,15 +825,50 @@ export default function LiveMockInterview() {
                     {getFeedbackStatement()}
                   </p>
 
-                  <div className="pt-2">
-                    <button
-                      onClick={handleRestart}
-                      className="inline-flex items-center justify-center gap-2 px-6 py-2.5 bg-slate-950 hover:bg-slate-850 text-white text-xs font-bold rounded-xl transition-all shadow-sm cursor-pointer uppercase tracking-wider"
-                      id="restart_interview_assessment_btn"
-                    >
-                      <RotateCcw className="w-3.5 h-3.5" />
-                      <span>Restart Practice</span>
-                    </button>
+                  <div className="pt-2 flex flex-wrap items-center justify-center gap-3">
+                    {mode === 'category' ? (
+                      <>
+                        <button
+                          onClick={() => {
+                            setQuizIndex(0);
+                            setUserSelections([]);
+                            setCurrentStep('quiz');
+                          }}
+                          className="inline-flex items-center justify-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl transition-all shadow-sm cursor-pointer uppercase tracking-wider"
+                          id="results_retry_category_btn"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" />
+                          <span>Retry This Category</span>
+                        </button>
+                        <button
+                          onClick={() => {
+                            setLearningIndex(0);
+                            setCurrentStep('learning');
+                          }}
+                          className="inline-flex items-center justify-center gap-2 px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl transition-all shadow-sm cursor-pointer uppercase tracking-wider"
+                          id="results_learn_category_btn"
+                        >
+                          <BookOpen className="w-3.5 h-3.5" />
+                          <span>Learn This Category</span>
+                        </button>
+                        <button
+                          onClick={handleRestart}
+                          className="inline-flex items-center justify-center gap-2 px-6 py-2.5 bg-slate-950 hover:bg-slate-850 text-white text-xs font-bold rounded-xl transition-all shadow-sm cursor-pointer uppercase tracking-wider"
+                          id="results_back_to_home_btn"
+                        >
+                          <span>Back to Home</span>
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        onClick={handleRestart}
+                        className="inline-flex items-center justify-center gap-2 px-6 py-2.5 bg-slate-950 hover:bg-slate-850 text-white text-xs font-bold rounded-xl transition-all shadow-sm cursor-pointer uppercase tracking-wider"
+                        id="restart_interview_assessment_btn"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5" />
+                        <span>Restart Practice</span>
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -635,7 +880,7 @@ export default function LiveMockInterview() {
                     </h3>
                   </div>
 
-                  {/* Filters & Search controls */}
+                  {/* Filters & Search controls (only show category filters in full mode) */}
                   <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-3 shadow-3xs">
                     <div className="relative">
                       <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -648,39 +893,41 @@ export default function LiveMockInterview() {
                       />
                     </div>
 
-                    <div className="space-y-1.5">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide flex items-center gap-1">
-                        <Filter className="w-3 h-3" /> Filter by Category:
-                      </span>
-                      <div className="flex flex-wrap gap-1.5">
-                        <button
-                          onClick={() => setSelectedResultCategoryFilter('all')}
-                          className={`px-2.5 py-1 rounded text-[10px] font-bold transition-all ${
-                            selectedResultCategoryFilter === 'all'
-                              ? 'bg-slate-900 text-white'
-                              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                          }`}
-                        >
-                          All Categories (62)
-                        </button>
-                        {Object.values(CATEGORIES_META).map(cat => {
-                          const count = userSelections.filter(sel => sel.category === cat.id).length;
-                          return (
-                            <button
-                              key={cat.id}
-                              onClick={() => setSelectedResultCategoryFilter(cat.id)}
-                              className={`px-2.5 py-1 rounded text-[10px] font-bold transition-all ${
-                                selectedResultCategoryFilter === cat.id
-                                  ? 'bg-blue-600 text-white'
-                                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                              }`}
-                            >
-                              Cat {cat.id} ({count})
-                            </button>
-                          );
-                        })}
+                    {mode === 'full' && (
+                      <div className="space-y-1.5">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide flex items-center gap-1">
+                          <Filter className="w-3 h-3" /> Filter by Category:
+                        </span>
+                        <div className="flex flex-wrap gap-1.5">
+                          <button
+                            onClick={() => setSelectedResultCategoryFilter('all')}
+                            className={`px-2.5 py-1 rounded text-[10px] font-bold transition-all ${
+                              selectedResultCategoryFilter === 'all'
+                                ? 'bg-slate-900 text-white'
+                                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                            }`}
+                          >
+                            All Categories (62)
+                          </button>
+                          {Object.values(CATEGORIES_META).map(cat => {
+                            const count = userSelections.filter(sel => sel.category === cat.id).length;
+                            return (
+                              <button
+                                key={cat.id}
+                                onClick={() => setSelectedResultCategoryFilter(cat.id)}
+                                className={`px-2.5 py-1 rounded text-[10px] font-bold transition-all ${
+                                  selectedResultCategoryFilter === cat.id
+                                    ? 'bg-blue-600 text-white'
+                                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                }`}
+                              >
+                                Cat {cat.id} ({count})
+                              </button>
+                            );
+                          })}
+                        </div>
                       </div>
-                    </div>
+                    )}
                   </div>
 
                   {/* Selection feedback items list */}
@@ -691,7 +938,6 @@ export default function LiveMockInterview() {
                       </div>
                     ) : (
                       filteredSelections.map((sel, idx) => {
-                        const catMeta = CATEGORIES_META[sel.category];
                         return (
                           <div 
                             key={idx} 
@@ -779,7 +1025,7 @@ export default function LiveMockInterview() {
                     Ready to refine your analytical corporate insights?
                   </h4>
                   <p className="text-slate-500 text-xs leading-relaxed max-w-md mx-auto">
-                    You can reset this trial and review the theoretical guidelines to achieve a perfect 62 / 62 score record.
+                    You can reset this trial and review the theoretical guidelines to achieve a perfect {activeScenarios.length} / {activeScenarios.length} score record.
                   </p>
                   <button
                     onClick={handleRestart}
