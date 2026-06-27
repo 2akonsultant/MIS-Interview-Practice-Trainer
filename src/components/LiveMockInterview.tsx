@@ -16,7 +16,15 @@ import {
   Sliders,
   Lightbulb,
   Search,
-  Filter
+  Filter,
+  Lock,
+  Shield,
+  Trash2,
+  Download,
+  LogOut,
+  Calendar,
+  ArrowUpDown,
+  User
 } from 'lucide-react';
 import { SCENARIOS, Scenario, Option } from '../data/scenarios';
 
@@ -104,9 +112,105 @@ function shuffleOptions(options: Option[]): Option[] {
   return result;
 }
 
+function formatDate(date: Date): string {
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const day = date.getDate();
+  const month = months[date.getMonth()];
+  const year = date.getFullYear();
+  
+  let hours = date.getHours();
+  const minutes = date.getMinutes();
+  const ampm = hours >= 12 ? "PM" : "AM";
+  hours = hours % 12;
+  hours = hours ? hours : 12; // the hour '0' should be '12'
+  const minStr = minutes < 10 ? "0" + minutes : minutes;
+  
+  return `${day} ${month} ${year} ${hours}:${minStr} ${ampm}`;
+}
+
+function saveAttemptToLocalStorage(attempt: any) {
+  try {
+    const existingScoresJson = localStorage.getItem("mis_scores");
+    const existingScores = existingScoresJson ? JSON.parse(existingScoresJson) : [];
+    if (Array.isArray(existingScores)) {
+      existingScores.push(attempt);
+      localStorage.setItem("mis_scores", JSON.stringify(existingScores));
+    } else {
+      localStorage.setItem("mis_scores", JSON.stringify([attempt]));
+    }
+  } catch (error) {
+    console.error("localStorage not available or blocked:", error);
+  }
+}
+
+function getCategoryForScenario(scenarioNumber: number): number {
+  const sc = SCENARIOS.find(s => s.id === scenarioNumber);
+  return sc ? sc.category : 0;
+}
+
 export default function LiveMockInterview() {
   const [currentStep, setCurrentStep] = useState<'landing' | 'learn-intro' | 'learning' | 'quiz' | 'results' | 'category-learn-completed'>('landing');
   
+  // Role & Login State
+  const [role, setRole] = useState<'login' | 'candidate' | 'admin'>('login');
+  const [candidateName, setCandidateName] = useState<string>('');
+  
+  // Login fields
+  const [inputName, setInputName] = useState<string>('');
+  const [inputPin, setInputPin] = useState<string>('');
+  const [pinError, setPinError] = useState<string>('');
+  const [showAdminModal, setShowAdminModal] = useState<boolean>(false);
+
+  // Global keyboard shortcut: Ctrl + Shift + A to open Admin modal
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (role === 'login' && e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'a') {
+        e.preventDefault();
+        setShowAdminModal(true);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [role]);
+  
+  // Storage availability
+  const [isLocalStorageAvailable, setIsLocalStorageAvailable] = useState<boolean>(true);
+  
+  // Admin dashboard states
+  const [allAttempts, setAllAttempts] = useState<any[]>([]);
+  const [selectedAttempt, setSelectedAttempt] = useState<any | null>(null);
+  const [adminSearchName, setAdminSearchName] = useState<string>('');
+  const [adminFilterCategory, setAdminFilterCategory] = useState<string>('All');
+  const [adminFilterMode, setAdminFilterMode] = useState<string>('All');
+  const [adminSortKey, setAdminSortKey] = useState<string>('date');
+  const [adminSortDirection, setAdminSortDirection] = useState<'asc' | 'desc'>('desc');
+  const [showClearConfirm, setShowClearConfirm] = useState<boolean>(false);
+
+  // Check localStorage availability on mount
+  useEffect(() => {
+    try {
+      localStorage.setItem('__test_ls__', '1');
+      localStorage.removeItem('__test_ls__');
+      setIsLocalStorageAvailable(true);
+    } catch (e) {
+      setIsLocalStorageAvailable(false);
+    }
+  }, []);
+
+  // Reload all attempts for Admin when role becomes admin
+  useEffect(() => {
+    if (role === 'admin') {
+      try {
+        const existingScoresJson = localStorage.getItem('mis_scores');
+        setAllAttempts(existingScoresJson ? JSON.parse(existingScoresJson) : []);
+      } catch (error) {
+        console.error("Failed to read mis_scores", error);
+      }
+    }
+  }, [role]);
+
   // Progress indexes
   const [learningIndex, setLearningIndex] = useState<number>(0);
   const [quizIndex, setQuizIndex] = useState<number>(0);
@@ -275,17 +379,825 @@ export default function LiveMockInterview() {
         }
       }));
 
+      // Silently save attempt to localStorage
+      const attemptDate = formatDate(new Date());
+      const attemptCategoryName = mode === 'category' && selectedCategory
+        ? CATEGORIES_META[selectedCategory].name
+        : "All Categories";
+
+      const attemptRecord = {
+        name: candidateName || "Candidate",
+        date: attemptDate,
+        mode: mode === 'category' ? 'Category' : 'Full',
+        category: attemptCategoryName,
+        score: correctCount,
+        total: totalCount,
+        percentage: accuracy,
+        breakdown: updatedSelections.map(sel => ({
+          scenarioNumber: sel.scenarioId,
+          title: sel.scenarioTitle,
+          selectedAnswer: sel.selectedText,
+          correct: sel.isCorrect,
+          correctAnswer: sel.correctText
+        }))
+      };
+
+      saveAttemptToLocalStorage(attemptRecord);
+
       setCurrentStep('results');
     }
   };
 
-  // Filter and search results
+  const handleCandidateSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!inputName.trim()) return;
+    setCandidateName(inputName.trim());
+    setRole('candidate');
+    setCurrentStep('landing');
+  };
+
+  const handleAdminSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (inputPin === '2025') {
+      setRole('admin');
+      setPinError('');
+      setShowAdminModal(false);
+    } else {
+      setPinError('Incorrect PIN. Try again.');
+    }
+  };
+
+  const handleLogout = () => {
+    setRole('login');
+    setInputName('');
+    setInputPin('');
+    setPinError('');
+    setShowAdminModal(false);
+    setCandidateName('');
+    setSelectedAttempt(null);
+  };
+
+  const handleSortClick = (key: string) => {
+    if (adminSortKey === key) {
+      setAdminSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+    } else {
+      setAdminSortKey(key);
+      setAdminSortDirection('desc');
+    }
+  };
+
+  const renderSortIndicator = (key: string) => {
+    if (adminSortKey !== key) {
+      return <ArrowUpDown className="w-3.5 h-3.5 text-slate-300 ml-1.5 inline" />;
+    }
+    return adminSortDirection === 'asc' 
+      ? <span className="text-blue-500 font-bold ml-1.5 text-xs">▲</span> 
+      : <span className="text-blue-500 font-bold ml-1.5 text-xs">▼</span>;
+  };
+
+  const handleExportCSV = () => {
+    const headers = ["Name", "Date", "Mode", "Category", "Score", "Total", "Percentage"];
+    const rows = sortedAttempts.map(a => [
+      `"${(a.name || '').replace(/"/g, '""')}"`,
+      `"${a.date || ''}"`,
+      `"${a.mode || ''}"`,
+      `"${(a.category || '').replace(/"/g, '""')}"`,
+      a.score,
+      a.total,
+      `"${a.percentage}%"`
+    ]);
+    
+    const csvContent = [headers.join(","), ...rows.map(r => r.join(","))].join("\n");
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `candidate_scores_${new Date().toISOString().slice(0, 10)}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const getCategoryPerformance = (attempt: any) => {
+    const performance: Record<number, { correct: number; total: number }> = {};
+    if (!attempt || !attempt.breakdown) return performance;
+    
+    attempt.breakdown.forEach((item: any) => {
+      const catId = getCategoryForScenario(item.scenarioNumber);
+      if (catId) {
+        if (!performance[catId]) {
+          performance[catId] = { correct: 0, total: 0 };
+        }
+        performance[catId].total += 1;
+        if (item.correct) {
+          performance[catId].correct += 1;
+        }
+      }
+    });
+    return performance;
+  };
+
+  // Formatted categories for admin filter
+  const adminCategoriesList = [
+    "All", 
+    "MIS & Finance", 
+    "Requirement Gathering & Stakeholder Management", 
+    "Banking & Financial Services", 
+    "Data Analysis", 
+    "Process Improvement", 
+    "Problem Solving & Decision Making"
+  ];
+
+  // Helper to parse custom formatted date
+  const parseCustomDate = (dateStr: string) => {
+    try {
+      return new Date(dateStr).getTime() || 0;
+    } catch (e) {
+      return 0;
+    }
+  };
+
+  // Filter and search results for Admin view
+  const filteredAttempts = allAttempts.filter(attempt => {
+    const matchesName = (attempt.name || '').toLowerCase().includes(adminSearchName.toLowerCase());
+    const matchesCategory = adminFilterCategory === 'All' || attempt.category === adminFilterCategory;
+    const matchesMode = adminFilterMode === 'All' || attempt.mode === adminFilterMode;
+    return matchesName && matchesCategory && matchesMode;
+  });
+
+  const sortedAttempts = [...filteredAttempts].sort((a, b) => {
+    let valA: any = a[adminSortKey];
+    let valB: any = b[adminSortKey];
+    
+    if (adminSortKey === 'date') {
+      valA = parseCustomDate(a.date);
+      valB = parseCustomDate(b.date);
+    } else if (adminSortKey === 'percentage' || adminSortKey === 'score') {
+      valA = Number(a[adminSortKey]) || 0;
+      valB = Number(b[adminSortKey]) || 0;
+    } else {
+      valA = String(a[adminSortKey] || '').toLowerCase();
+      valB = String(b[adminSortKey] || '').toLowerCase();
+    }
+    
+    if (valA < valB) return adminSortDirection === 'asc' ? -1 : 1;
+    if (valA > valB) return adminSortDirection === 'asc' ? 1 : -1;
+    return 0;
+  });
+
+  // Calculate stats
+  const uniqueCandidatesCount = new Set(allAttempts.map(a => (a.name || '').trim().toLowerCase())).size;
+  const totalAttemptsCount = allAttempts.length;
+  const avgPercentage = totalAttemptsCount > 0 
+    ? Math.round(allAttempts.reduce((sum, a) => sum + (a.percentage || 0), 0) / totalAttemptsCount) 
+    : 0;
+
+  let highestScoreAttempt: any = null;
+  if (allAttempts.length > 0) {
+    highestScoreAttempt = allAttempts.reduce((max, a) => {
+      if (!max) return a;
+      if ((a.percentage || 0) > (max.percentage || 0)) return a;
+      if ((a.percentage || 0) === (max.percentage || 0) && (a.score || 0) > (max.score || 0)) return a;
+      return max;
+    }, null);
+  }
+
+  // Filter and search results for Candidate Results step
   const filteredSelections = userSelections.filter(sel => {
     const matchesCategory = selectedResultCategoryFilter === 'all' || sel.category === selectedResultCategoryFilter;
     const matchesSearch = sel.scenarioTitle.toLowerCase().includes(resultsSearchQuery.toLowerCase()) || 
                           sel.scenarioText.toLowerCase().includes(resultsSearchQuery.toLowerCase());
     return matchesCategory && matchesSearch;
   });
+
+  if (role === 'login') {
+    return (
+      <div className="bg-slate-50 min-h-screen py-8 sm:py-16 px-4 flex flex-col items-center justify-center transition-all duration-300 animate-fade-in relative">
+        <div className="max-w-md w-full bg-white border border-slate-200 rounded-2xl shadow-md overflow-hidden">
+          {/* Header section */}
+          <div className="bg-slate-900 text-white p-6 sm:p-8 text-center space-y-4">
+            <div className="w-14 h-14 bg-slate-800 text-blue-400 rounded-2xl flex items-center justify-center mx-auto shadow-sm">
+              <GraduationCap className="w-8 h-8" />
+            </div>
+            <div className="space-y-1">
+              <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight font-display uppercase">
+                MIS Interview Practice Trainer
+              </h1>
+              <p className="text-slate-400 text-xs sm:text-sm max-w-xs mx-auto leading-relaxed">
+                Securely manage, practice, and evaluate real-world MIS corporate scenarios.
+              </p>
+            </div>
+          </div>
+          
+          {/* Form */}
+          <div className="p-6 sm:p-8 space-y-6">
+            <div className="space-y-2">
+              <h2 className="text-base font-bold text-slate-900 font-display text-center">
+                Candidate Entry Portal
+              </h2>
+              <p className="text-xs text-slate-500 text-center leading-relaxed">
+                Start your training process. Solve scenario dilemmas, learn expected corporate strategies, and test your knowledge.
+              </p>
+            </div>
+            
+            <form onSubmit={handleCandidateSubmit} className="space-y-4">
+              <div className="space-y-1.5">
+                <label htmlFor="candidate_name_input" className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                  Your Full Name
+                </label>
+                <input
+                  id="candidate_name_input"
+                  type="text"
+                  required
+                  placeholder="Enter your full name"
+                  value={inputName}
+                  onChange={(e) => setInputName(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all font-medium text-slate-800"
+                />
+              </div>
+              
+              <button
+                type="submit"
+                className="w-full inline-flex items-center justify-center gap-2 px-5 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl transition-all shadow-3xs uppercase tracking-wider select-none cursor-pointer"
+                id="candidate_submit_btn"
+              >
+                <span>Start as Candidate</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            </form>
+          </div>
+          
+          {/* Footer note */}
+          <div className="bg-slate-50 border-t border-slate-100 px-6 py-4 text-center flex flex-col items-center justify-center gap-1.5">
+            <span className="text-[10px] font-mono font-semibold text-slate-400 uppercase tracking-wider block">
+              Authorized Corporate Training Portal • Version 2026.1
+            </span>
+            <button 
+              onClick={() => setShowAdminModal(true)}
+              className="text-[9px] text-slate-300 hover:text-slate-400 font-mono transition-colors cursor-pointer select-none border-none bg-transparent"
+              title="Admin access panel link"
+            >
+              Admin
+            </button>
+          </div>
+        </div>
+
+        {/* Hidden Admin Entry Modal Overlay */}
+        {showAdminModal && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in">
+            <div className="bg-white rounded-2xl border border-slate-200 p-6 max-w-sm w-full text-center space-y-4 shadow-xl animate-scale-up animate-fade-in">
+              <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-full flex items-center justify-center mx-auto">
+                <Shield className="w-6 h-6" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="font-display font-bold text-base text-slate-900">Admin Console Access</h3>
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  Enter authorized PIN to view candidates' performance statistics.
+                </p>
+              </div>
+
+              <form onSubmit={handleAdminSubmit} className="space-y-4 text-left">
+                <div className="space-y-1.5">
+                  <label htmlFor="admin_pin_input" className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                    Admin Access PIN
+                  </label>
+                  <div className="relative">
+                    <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      id="admin_pin_input"
+                      type="password"
+                      placeholder="Enter Admin PIN"
+                      value={inputPin}
+                      onChange={(e) => {
+                        setInputPin(e.target.value);
+                        if (pinError) setPinError('');
+                      }}
+                      className="w-full pl-9 pr-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:bg-white transition-all font-mono font-medium text-slate-800"
+                    />
+                  </div>
+                  {pinError && (
+                    <span className="text-xs font-semibold text-rose-600 flex items-center gap-1 mt-1" id="admin_pin_error">
+                      <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                      <span>{pinError}</span>
+                    </span>
+                  )}
+                </div>
+                
+                <div className="grid grid-cols-2 gap-2 pt-2">
+                  <button
+                    type="submit"
+                    className="w-full inline-flex items-center justify-center gap-1.5 px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl transition-all shadow-3xs uppercase tracking-wider select-none cursor-pointer"
+                    id="admin_submit_btn"
+                  >
+                    <span>Access</span>
+                    <Shield className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowAdminModal(false);
+                      setInputPin('');
+                      setPinError('');
+                    }}
+                    className="w-full px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-all cursor-pointer uppercase tracking-wider"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (role === 'admin') {
+    return (
+      <div className="bg-slate-50 min-h-screen py-8 sm:py-12 px-4 transition-all duration-300 animate-fade-in">
+        <div className="max-w-6xl mx-auto space-y-6">
+          {/* Header Row */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-900 text-white p-5 rounded-2xl shadow-3xs">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-slate-800 text-blue-400 rounded-xl">
+                <Shield className="w-5 h-5" />
+              </div>
+              <div>
+                <span className="text-[9px] font-mono font-bold text-slate-400 block uppercase">Operations Center</span>
+                <h1 className="text-lg sm:text-xl font-bold tracking-tight font-display uppercase">Admin Audit Console</h1>
+              </div>
+            </div>
+            
+            <button
+              onClick={handleLogout}
+              className="inline-flex items-center gap-1.5 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold rounded-xl transition-all uppercase tracking-wider cursor-pointer"
+              id="admin_logout_btn"
+            >
+              <LogOut className="w-4 h-4 text-rose-400" />
+              <span>Logout</span>
+            </button>
+          </div>
+
+          {/* LocalStorage warning if unavailable */}
+          {!isLocalStorageAvailable && (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3 shadow-3xs">
+              <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+              <div className="text-xs text-amber-800 font-semibold">
+                Note: localStorage unavailable in this browser — scores may not persist.
+              </div>
+            </div>
+          )}
+
+          {/* SUMMARY STATS */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* Stat 1: Unique Candidates */}
+            <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-3xs flex items-center gap-4">
+              <div className="p-3 bg-blue-50 text-blue-600 rounded-xl shrink-0">
+                <Users className="w-6 h-6" />
+              </div>
+              <div className="min-w-0">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide block truncate">Total Candidates</span>
+                <span className="text-2xl font-black text-slate-800 font-mono block">{uniqueCandidatesCount}</span>
+              </div>
+            </div>
+
+            {/* Stat 2: Total Attempts */}
+            <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-3xs flex items-center gap-4">
+              <div className="p-3 bg-indigo-50 text-indigo-600 rounded-xl shrink-0">
+                <Award className="w-6 h-6" />
+              </div>
+              <div className="min-w-0">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide block truncate">Total Attempts</span>
+                <span className="text-2xl font-black text-slate-800 font-mono block">{totalAttemptsCount}</span>
+              </div>
+            </div>
+
+            {/* Stat 3: Avg score */}
+            <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-3xs flex items-center gap-4">
+              <div className="p-3 bg-emerald-50 text-emerald-600 rounded-xl shrink-0">
+                <CheckCircle className="w-6 h-6" />
+              </div>
+              <div className="min-w-0">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide block truncate">Average Score</span>
+                <span className="text-2xl font-black text-slate-800 font-mono block">{avgPercentage}%</span>
+              </div>
+            </div>
+
+            {/* Stat 4: Highest score */}
+            <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-3xs flex items-center gap-4">
+              <div className="p-3 bg-amber-50 text-amber-600 rounded-xl shrink-0">
+                <Briefcase className="w-6 h-6" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide block truncate">Highest Score</span>
+                {highestScoreAttempt ? (
+                  <div className="truncate">
+                    <span className="text-xs font-bold text-slate-800 truncate block">
+                      {highestScoreAttempt.name}
+                    </span>
+                    <span className="text-[10px] font-mono font-bold text-blue-600 block">
+                      {highestScoreAttempt.score}/{highestScoreAttempt.total} ({highestScoreAttempt.percentage}%)
+                    </span>
+                  </div>
+                ) : (
+                  <span className="text-xs font-semibold text-slate-400 block mt-1">No scores yet</span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* FILTER / SEARCH BAR */}
+          <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-3xs space-y-4">
+            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+              <Filter className="w-3.5 h-3.5" /> Filters & Controls
+            </h3>
+            
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              {/* Search input */}
+              <div className="relative">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Search by candidate name..."
+                  value={adminSearchName}
+                  onChange={(e) => setAdminSearchName(e.target.value)}
+                  className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
+                />
+              </div>
+
+              {/* Category Dropdown */}
+              <div>
+                <select
+                  value={adminFilterCategory}
+                  onChange={(e) => setAdminFilterCategory(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white cursor-pointer"
+                >
+                  {adminCategoriesList.map(cat => (
+                    <option key={cat} value={cat}>
+                      {cat === "All" ? "All Categories" : cat}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Mode Dropdown */}
+              <div>
+                <select
+                  value={adminFilterMode}
+                  onChange={(e) => setAdminFilterMode(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white cursor-pointer"
+                >
+                  <option value="All">All Modes</option>
+                  <option value="Category">Category Mode</option>
+                  <option value="Full">Full Mode</option>
+                </select>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex gap-2 justify-end">
+                <button
+                  onClick={() => {
+                    setAdminSearchName('');
+                    setAdminFilterCategory('All');
+                    setAdminFilterMode('All');
+                  }}
+                  className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg transition-all cursor-pointer uppercase tracking-wider"
+                  title="Clear all active filters"
+                >
+                  Clear Filters
+                </button>
+                <button
+                  onClick={handleExportCSV}
+                  disabled={sortedAttempts.length === 0}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-100 disabled:text-slate-400 text-white text-xs font-bold rounded-lg transition-all cursor-pointer uppercase tracking-wider"
+                  title="Download matching scores as CSV"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Export CSV</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* DATA TABLE CARD */}
+          <div className="bg-white border border-slate-200 rounded-2xl shadow-3xs overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-slate-900 text-white text-[10px] uppercase tracking-wider">
+                    <th 
+                      onClick={() => handleSortClick('name')}
+                      className="px-5 py-3.5 cursor-pointer select-none hover:bg-slate-800 transition-colors"
+                    >
+                      <div className="flex items-center">
+                        <span>Name</span>
+                        {renderSortIndicator('name')}
+                      </div>
+                    </th>
+                    <th 
+                      onClick={() => handleSortClick('date')}
+                      className="px-5 py-3.5 cursor-pointer select-none hover:bg-slate-800 transition-colors"
+                    >
+                      <div className="flex items-center">
+                        <span>Date</span>
+                        {renderSortIndicator('date')}
+                      </div>
+                    </th>
+                    <th 
+                      onClick={() => handleSortClick('mode')}
+                      className="px-5 py-3.5 cursor-pointer select-none hover:bg-slate-800 transition-colors"
+                    >
+                      <div className="flex items-center">
+                        <span>Mode</span>
+                        {renderSortIndicator('mode')}
+                      </div>
+                    </th>
+                    <th 
+                      onClick={() => handleSortClick('category')}
+                      className="px-5 py-3.5 cursor-pointer select-none hover:bg-slate-800 transition-colors"
+                    >
+                      <div className="flex items-center">
+                        <span>Category</span>
+                        {renderSortIndicator('category')}
+                      </div>
+                    </th>
+                    <th 
+                      onClick={() => handleSortClick('score')}
+                      className="px-5 py-3.5 cursor-pointer select-none hover:bg-slate-800 transition-colors"
+                    >
+                      <div className="flex items-center">
+                        <span>Score</span>
+                        {renderSortIndicator('score')}
+                      </div>
+                    </th>
+                    <th 
+                      onClick={() => handleSortClick('percentage')}
+                      className="px-5 py-3.5 cursor-pointer select-none hover:bg-slate-800 transition-colors"
+                    >
+                      <div className="flex items-center">
+                        <span>Percentage</span>
+                        {renderSortIndicator('percentage')}
+                      </div>
+                    </th>
+                    <th className="px-5 py-3.5 select-none">
+                      <span>Details</span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-xs font-semibold text-slate-700">
+                  {sortedAttempts.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="px-5 py-12 text-center text-slate-400 italic">
+                        No historical attempts matched your filter criteria.
+                      </td>
+                    </tr>
+                  ) : (
+                    sortedAttempts.map((attempt, index) => (
+                      <tr key={index} className="hover:bg-slate-50/50 transition-colors">
+                        <td className="px-5 py-3.5 font-bold text-slate-800 whitespace-nowrap">
+                          {attempt.name}
+                        </td>
+                        <td className="px-5 py-3.5 text-slate-500 font-mono whitespace-nowrap">
+                          {attempt.date}
+                        </td>
+                        <td className="px-5 py-3.5 whitespace-nowrap">
+                          <span className={`px-2.5 py-0.5 rounded text-[10px] font-bold ${
+                            attempt.mode === 'Full' 
+                              ? 'bg-indigo-50 text-indigo-700 border border-indigo-150' 
+                              : 'bg-blue-50 text-blue-700 border border-blue-150'
+                          }`}>
+                            {attempt.mode}
+                          </span>
+                        </td>
+                        <td className="px-5 py-3.5 truncate max-w-[200px]" title={attempt.category}>
+                          {attempt.category}
+                        </td>
+                        <td className="px-5 py-3.5 font-mono">
+                          {attempt.score} / {attempt.total}
+                        </td>
+                        <td className="px-5 py-3.5">
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold font-mono">{attempt.percentage}%</span>
+                            <div className="w-12 bg-slate-100 h-1.5 rounded-full overflow-hidden border border-slate-200 shrink-0">
+                              <div 
+                                className={`h-full ${
+                                  attempt.percentage >= 90 ? 'bg-emerald-500' :
+                                  attempt.percentage >= 70 ? 'bg-blue-500' : 'bg-amber-500'
+                                }`}
+                                style={{ width: `${attempt.percentage}%` }}
+                              />
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-5 py-3.5">
+                          <button
+                            onClick={() => setSelectedAttempt(attempt)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-md font-bold uppercase text-[10px] transition-all cursor-pointer"
+                          >
+                            <span>View</span>
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* DANGER AREA ROW (CLEAR ALL DATA) */}
+          <div className="flex justify-end pt-4">
+            <button
+              onClick={() => setShowClearConfirm(true)}
+              className="inline-flex items-center gap-1.5 px-4 py-2.5 bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 text-xs font-bold rounded-xl transition-all uppercase tracking-wider cursor-pointer"
+              id="clear_all_scores_btn"
+            >
+              <Trash2 className="w-4 h-4" />
+              <span>Clear All Data</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Audit Details Modal Overlays */}
+        {selectedAttempt && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in">
+            <div className="bg-white rounded-2xl border border-slate-200 max-w-3xl w-full max-h-[85vh] flex flex-col shadow-xl animate-scale-up">
+              {/* Header */}
+              <div className="bg-slate-900 text-white px-6 py-4 rounded-t-2xl flex items-center justify-between shrink-0">
+                <div>
+                  <span className="text-[10px] font-mono font-bold text-blue-400 block uppercase">Candidate Attempt Audit</span>
+                  <h3 className="font-display font-bold text-base">{selectedAttempt.name}</h3>
+                </div>
+                <button 
+                  onClick={() => setSelectedAttempt(null)}
+                  className="text-slate-400 hover:text-white transition-colors p-1.5 hover:bg-slate-800 rounded-lg cursor-pointer"
+                >
+                  <ChevronRight className="w-5 h-5 rotate-180" />
+                </button>
+              </div>
+              
+              {/* Scrollable Content */}
+              <div className="p-6 overflow-y-auto space-y-6">
+                {/* Metadata Row */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 bg-slate-50 border border-slate-200 rounded-xl p-4">
+                  <div className="space-y-0.5">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Date Completed</span>
+                    <span className="text-xs font-mono font-semibold text-slate-800 block">{selectedAttempt.date}</span>
+                  </div>
+                  <div className="space-y-0.5">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Practice Mode</span>
+                    <span className="text-xs font-semibold text-slate-800 block">{selectedAttempt.mode}</span>
+                  </div>
+                  <div className="space-y-0.5">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Category Context</span>
+                    <span className="text-xs font-semibold text-slate-800 block truncate" title={selectedAttempt.category}>
+                      {selectedAttempt.category}
+                    </span>
+                  </div>
+                  <div className="space-y-0.5">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Final Score</span>
+                    <span className="text-xs font-mono font-bold text-blue-600 block">
+                      {selectedAttempt.score} / {selectedAttempt.total} ({selectedAttempt.percentage}% Accuracy)
+                    </span>
+                  </div>
+                </div>
+
+                {/* Category-wise Breakdown (only shown for Full mode) */}
+                {selectedAttempt.mode === 'Full' && (
+                  <div className="space-y-2.5">
+                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                      <Sliders className="w-3.5 h-3.5" /> Category-Wise Performance
+                    </h4>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {Object.keys(CATEGORIES_META).map(key => {
+                        const catId = Number(key);
+                        const perf = getCategoryPerformance(selectedAttempt)[catId];
+                        const meta = CATEGORIES_META[catId];
+                        return perf ? (
+                          <div key={catId} className="flex items-center justify-between p-3 bg-slate-50 border border-slate-100 rounded-xl">
+                            <div className="flex items-center gap-2">
+                              <div className={`p-1.5 rounded bg-white ${meta.color}`}>
+                                {React.createElement(meta.icon, { className: "w-3.5 h-3.5" })}
+                              </div>
+                              <span className="text-xs font-semibold text-slate-700 truncate max-w-[150px]">{meta.name}</span>
+                            </div>
+                            <span className="text-xs font-mono font-bold text-slate-800">
+                              {perf.correct} / {perf.total} ({Math.round((perf.correct / perf.total) * 100)}%)
+                            </span>
+                          </div>
+                        ) : null;
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Scenario-by-Scenario Log */}
+                <div className="space-y-3">
+                  <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                    <BookOpen className="w-3.5 h-3.5" /> Question-By-Question Audit Breakdown
+                  </h4>
+                  
+                  <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100">
+                    {selectedAttempt.breakdown && selectedAttempt.breakdown.map((item: any, index: number) => (
+                      <div key={index} className="p-4 space-y-2.5 bg-white hover:bg-slate-50/40 transition-colors">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="space-y-0.5">
+                            <span className="text-[9px] font-mono font-bold text-slate-400 block uppercase">
+                              Scenario {item.scenarioNumber}
+                            </span>
+                            <h5 className="font-display font-bold text-xs sm:text-sm text-slate-800">{item.title}</h5>
+                          </div>
+                          {item.correct ? (
+                            <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-700 border border-emerald-100 text-[10px] font-bold px-2 py-0.5 rounded-md uppercase font-mono tracking-wide shrink-0">
+                              ✓ Correct
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 bg-rose-50 text-rose-700 border border-rose-100 text-[10px] font-bold px-2 py-0.5 rounded-md uppercase font-mono tracking-wide shrink-0">
+                              ✗ Incorrect
+                            </span>
+                          )}
+                        </div>
+                        
+                        <div className="grid grid-cols-1 gap-2.5 pt-1 text-xs">
+                          <div>
+                            <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Chosen Option:</span>
+                            <p className={`p-2.5 rounded-lg border leading-relaxed text-slate-700 font-medium ${item.correct ? 'bg-emerald-50/25 border-emerald-100 text-emerald-800' : 'bg-rose-50/25 border-rose-100 text-rose-800'}`}>
+                              {item.selectedAnswer}
+                            </p>
+                          </div>
+                          {!item.correct && (
+                            <div>
+                              <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Correct Answer:</span>
+                              <p className="p-2.5 bg-emerald-50/25 border border-emerald-100 rounded-lg leading-relaxed text-emerald-800 font-medium">
+                                {item.correctAnswer}
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Footer actions */}
+              <div className="border-t border-slate-200 px-6 py-4 bg-slate-50 rounded-b-2xl flex justify-end shrink-0">
+                <button
+                  onClick={() => setSelectedAttempt(null)}
+                  className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl transition-all cursor-pointer uppercase tracking-wider"
+                >
+                  Close Audit Log
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Clear Database Confirm Dialog */}
+        {showClearConfirm && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in">
+            <div className="bg-white rounded-2xl border border-slate-200 p-6 max-w-sm w-full text-center space-y-4 shadow-xl">
+              <div className="w-12 h-12 bg-rose-50 text-rose-600 rounded-full flex items-center justify-center mx-auto">
+                <Trash2 className="w-6 h-6" />
+              </div>
+              <div className="space-y-2">
+                <h3 className="font-display font-bold text-base text-slate-900">Clear Candidate Database?</h3>
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  This will permanently delete all candidate scores and historical attempts. Are you sure?
+                </p>
+              </div>
+              <div className="pt-2 grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => {
+                    try {
+                      localStorage.removeItem('mis_scores');
+                      setAllAttempts([]);
+                      setSelectedAttempt(null);
+                    } catch (e) {
+                      console.error("Failed to clear", e);
+                    }
+                    setShowClearConfirm(false);
+                  }}
+                  className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl transition-all cursor-pointer uppercase tracking-wider"
+                >
+                  Yes, Clear All
+                </button>
+                <button
+                  onClick={() => setShowClearConfirm(false)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-all cursor-pointer uppercase tracking-wider"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Filter and search results for original candidate results view (leaving existing logic intact)
 
   return (
     <div className="bg-slate-50 min-h-full py-8 sm:py-12 px-4 transition-all duration-300 animate-fade-in">
@@ -332,6 +1244,13 @@ export default function LiveMockInterview() {
                 <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mx-auto shadow-2xs">
                   <GraduationCap className="w-10 h-10" />
                 </div>
+                
+                {candidateName && (
+                  <div className="inline-flex items-center gap-1.5 px-3.5 py-1 bg-slate-100 border border-slate-200 rounded-full text-xs font-bold text-slate-700 font-mono shadow-3xs uppercase tracking-wide">
+                    <User className="w-3.5 h-3.5 text-blue-600" />
+                    <span>Candidate: {candidateName}</span>
+                  </div>
+                )}
                 
                 <div className="space-y-3">
                   <h1 className="text-3xl sm:text-4xl font-extrabold text-slate-900 tracking-tight font-display uppercase">
