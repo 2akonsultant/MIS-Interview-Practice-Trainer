@@ -1,5 +1,5 @@
 {
-  "name": "MIS Interview Practice Trainer",
+  "name": "Online Assessment with 2AKonsultant",
   "description": "An interactive interview preparation trainer for Finance Analyst, FP&A, and MIS Executive candidates, utilizing the STAR+F framework with Self-Paced Practice and Live AI Mock Interview modes.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

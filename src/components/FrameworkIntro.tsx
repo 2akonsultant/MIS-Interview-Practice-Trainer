@@ -81,7 +81,7 @@ export default function FrameworkIntro({ onStartPractice, onStartMock }: Framewo
           className="text-3xl sm:text-4xl md:text-5xl font-display font-extrabold text-slate-900 tracking-tight leading-tight uppercase"
           variants={itemVariants}
         >
-          MIS Interview <span className="text-blue-700">Practice Trainer</span>
+          Online Assessment with <span className="text-blue-700">2AKonsultant</span>
         </motion.h1>
         
         <motion.p 

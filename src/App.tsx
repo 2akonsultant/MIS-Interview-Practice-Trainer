@@ -15,10 +15,10 @@ export default function App() {
             </div>
             <div>
               <span className="block font-display font-extrabold text-slate-900 text-sm tracking-tight uppercase">
-                MIS Practice Trainer
+                Online Assessment
               </span>
               <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">
-                Executive Trainer
+                with 2AKonsultant
               </span>
             </div>
           </div>
@@ -36,7 +36,7 @@ export default function App() {
       {/* Clean, Simple Footer */}
       <footer className="bg-white border-t border-slate-200 py-6 text-center text-xs text-slate-400 font-sans tracking-wide shrink-0">
         <div className="max-w-3xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
-          <p>© 2026 MIS Interview Practice Trainer. All rights reserved.</p>
+          <p>© 2026 Online Assessment with 2AKonsultant. All rights reserved.</p>
           <div className="flex gap-2">
             <span className="text-slate-500 font-medium">Part 1: Learn</span>
             <span>•</span>

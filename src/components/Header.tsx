@@ -19,14 +19,14 @@ export default function Header({ currentMode, setMode, practiceProgress }: Heade
           id="nav_logo_btn"
         >
           <div className="w-8 h-8 bg-blue-700 rounded flex items-center justify-center text-white font-bold transition-all group-hover:scale-105">
-            <span className="font-display text-base">M</span>
+            <span className="font-display text-xs">2A</span>
           </div>
           <div>
             <span className="block font-display font-bold text-slate-900 text-sm sm:text-base leading-none">
-              MIS Interview Practice
+              Online Assessment
             </span>
             <span className="block text-[10px] text-slate-450 font-bold tracking-wider mt-0.5 uppercase">
-              Trainer
+              with 2AKonsultant
             </span>
           </div>
         </button>

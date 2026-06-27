@@ -582,7 +582,7 @@ export default function LiveMockInterview() {
             </div>
             <div className="space-y-1">
               <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight font-display uppercase">
-                MIS Interview Practice Trainer
+                Online Assessment with 2AKonsultant
               </h1>
               <p className="text-slate-400 text-xs sm:text-sm max-w-xs mx-auto leading-relaxed">
                 Securely manage, practice, and evaluate real-world MIS corporate scenarios.
@@ -1254,7 +1254,7 @@ export default function LiveMockInterview() {
                 
                 <div className="space-y-3">
                   <h1 className="text-3xl sm:text-4xl font-extrabold text-slate-900 tracking-tight font-display uppercase">
-                    MIS Interview Practice Trainer
+                    Online Assessment with 2AKonsultant
                   </h1>
                   <p className="text-slate-600 text-sm sm:text-base max-w-xl mx-auto leading-relaxed">
                     Master key Management Information Systems (MIS) and Financial Planning & Analysis (FP&A) scenario dilemmas. Learn the industry-standard expected approaches for <strong>62 critical corporate cases</strong> across <strong>6 professional categories</strong>, and then test your knowledge in a timed, direct mock interview simulation.
